@@ -1,16 +1,33 @@
-# This is a sample Python script.
+import os
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+from efficientnet_pytorch_3d import EfficientNet3D
+import torch
 
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+model = EfficientNet3D.from_name("efficientnet-b0", override_params={'num_classes': 2}, in_channels=1)
 
+model = model.cuda()
+inputs = torch.randn((1, 1, 16, 244, 244)).cuda()
+labels = torch.tensor([0]).cuda()
+# test forward
+num_classes = 1
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+criterion = torch.nn.CrossEntropyLoss()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+model.train()
+for epoch in range(100):
+    # zero the parameter gradients
+    optimizer.zero_grad()
+
+    # forward + backward + optimize
+    outputs = model(inputs)
+    loss = criterion(outputs, labels)
+    loss.backward()
+    optimizer.step()
+
+    # print statistics
+    print('[%d] loss: %.3f' % (epoch + 1, loss.item()))
+
+print('Finished Training')
