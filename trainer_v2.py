@@ -10,6 +10,7 @@ import monai
 import torchvision.utils
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
+import logging
 
 import classification_config as config
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
@@ -20,6 +21,16 @@ from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, 
 from dataloading.batchgenerators_mprage2space import Mprage2space
 import torch
 from command_line_arguments.command_line_arguments import CommandLineArguments
+from torchmetrics import F1Score
+import matplotlib.pyplot as plt
+
+f1_score = F1Score(num_classes=2)
+
+ALL_F1 = []
+ALL_TLOSS = []
+ALL_VLOSS = []
+EPOCHS = []
+MODEL_BEST = 0
 
 
 def get_model(model_name):
@@ -147,7 +158,7 @@ def train_fn(model, criterion, mt_train, optimizer, epoch):
     # loop = tqdm(mt_train, total=len(mt_train.data_loader.indices), leave=True)
     # loop.set_description("Training Epoch Nr.: " + str(epoch))
     # random.seed(epoch)
-    # losses_batches = []
+    losses_batches = []
     for batch_idx, batch in enumerate(mt_train):
         x = torch.from_numpy(batch["data"]).to(config.DEVICE)
         y = torch.from_numpy(batch["class"]).to(config.DEVICE)
@@ -164,12 +175,12 @@ def train_fn(model, criterion, mt_train, optimizer, epoch):
             loss = criterion(outputs.type(torch.float32), y.type(torch.float32))
             loss.backward()
             optimizer.step()
-            # losses_batches.append(loss.item())
+            losses_batches.append(loss.item())
 
-    return loss.item()
+    return np.mean(losses_batches)
 
 
-def evaluate(model, epoch, fold, mt_val, train_loss):
+def evaluate(model, epoch, mt_val, train_loss):
     model.eval()
     all_outputs = torch.Tensor()
     all_y = torch.Tensor()
@@ -188,12 +199,29 @@ def evaluate(model, epoch, fold, mt_val, train_loss):
             all_y = torch.cat([all_y, y.detach().to('cpu')])
             losses_batches.append(loss.item())
 
-    print('[%d] Corr.: %d/%d, T-Loss: %.3f, V-Loss: %.3f' % (
-        epoch + 1, all_y.shape[0], np.sum(corrects), train_loss, np.mean(losses_batches)))
+    f_1 = f1_score(torch.round(torch.sigmoid(all_y)).type(torch.int),
+                   torch.round(torch.sigmoid(all_outputs)).type(torch.int))
+    print('[%d] F1: %.3f, T-Loss: %.3f, V-Loss: %.3f' % (
+        epoch + 1, f_1, train_loss, np.mean(losses_batches)))
+
+    logging.info('[%d] F1: %.3f, T-Loss: %.3f, V-Loss: %.3f' % (
+        epoch + 1, f_1, train_loss, np.mean(losses_batches)))
+
+    EPOCHS.append(epoch)
+    ALL_TLOSS.append(train_loss)
+    ALL_VLOSS.append(np.mean(losses_batches))
+    ALL_F1.append(f_1)
+
+    plt.plot(EPOCHS, ALL_TLOSS, '-gD', label="T-Loss" if epoch == 0 else "", markevery=[MODEL_BEST])
+    plt.plot(EPOCHS, ALL_VLOSS, '-bD', label="V-Loss" if epoch == 0 else "", markevery=[MODEL_BEST])
+    plt.plot(EPOCHS, ALL_F1, '-rD', label="F1" if epoch == 0 else "", markevery=[MODEL_BEST])
+    plt.title("Best model: %d" % MODEL_BEST)
+    plt.legend()
+    plt.savefig(os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, 'info.png'))
 
     model.train()
 
-    return np.mean(losses_batches), all_y.shape[0] / np.sum(corrects)
+    return np.mean(losses_batches), all_y.shape[0] / np.sum(corrects), f_1
 
 
 if __name__ == '__main__':
@@ -211,6 +239,9 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD), exist_ok=True)
 
     num_classes = 1
+
+    logging.basicConfig(filename=os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, 'info.log'),
+                        encoding='utf-8', level=logging.DEBUG)
 
     model = get_model(model_name)
     model = model.cuda()
@@ -249,33 +280,29 @@ if __name__ == '__main__':
             os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "runs/classification/track_stats"))
 
     model.train()
-    since = time.time()
 
     val_acc_history = []
 
     best_model_wts = copy.deepcopy(model.state_dict())
 
-    best_corrects = 10
-    best_val_loss = 10
-    best_train_loss = 10
+    best_f1 = 0
+
     for epoch in range(0, config.NUM_EPOCHS):
 
         train_loss = train_fn(
             model, criterion, mt_train, optimizer, epoch
         )
 
-        val_loss, corrects = evaluate(model, epoch, config.FOLD, mt_val, train_loss)
+        val_loss, corrects, f1 = evaluate(model, epoch, mt_val, train_loss)
 
         if config.TENSOR_BOARD:
             writer.add_scalar('train_loss', train_loss, global_step=epoch)
             writer.add_scalar('val_loss', val_loss, global_step=epoch)
             writer.add_scalar('val_acc', corrects, global_step=epoch)
 
-        if val_loss < best_val_loss:
-            best_corrects = corrects
-            best_val_loss = val_loss
-            best_train_loss = train_loss
-
+        if f1 > best_f1:
+            best_f1 = f1
+            MODEL_BEST = epoch
             best_model_wts = copy.deepcopy(model.state_dict())
             save_checkpoint(model, optimizer,
                             os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "model_best.pth.tar"))

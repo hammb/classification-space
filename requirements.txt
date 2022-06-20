@@ -5,3 +5,4 @@ batchgenerators~=0.23
 tqdm~=4.64.0
 torchvision~=0.8.2
 monai
+torchmetrics
