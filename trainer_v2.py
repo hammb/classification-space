@@ -204,7 +204,7 @@ if __name__ == '__main__':
     cma.parse_args()
     model_name = cma.args.model
 
-    config.CHECKPOINT_PATH = os.path.join(os.environ['cs_checkpoint_path'], os.path.basename(__file__).split(".")[0])
+    config.CHECKPOINT_PATH = os.path.join(os.environ['cs_checkpoint_path'], model_name)
     os.makedirs(config.CHECKPOINT_PATH, exist_ok=True)
     config.CHECKPOINT_PATH = os.path.join(config.CHECKPOINT_PATH, config.TASK)
     os.makedirs(config.CHECKPOINT_PATH, exist_ok=True)
