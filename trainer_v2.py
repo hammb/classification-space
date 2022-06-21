@@ -3,6 +3,8 @@ import copy
 import os
 import random
 import time
+from array import array
+from enum import Enum
 
 import numpy as np
 import torchvision.models as models
@@ -29,36 +31,59 @@ f1_score = F1Score(num_classes=2)
 ALL_F1 = []
 ALL_TLOSS = []
 ALL_VLOSS = []
+ALL_LR = []
 EPOCHS = []
 MODEL_BEST = 0
+
+
+class ModelChoices(Enum):
+    MONAI_RESNET = "monai_resnet"
+    MONAI_EFFICIENTNET = "monai_effnet"
+    MOANI_DENSENET = "monai_densenet"
+    TV_RESNET = "video_resnet"
 
 
 def get_model(model_name):
     if model_name == "monai_densenet":
         model = monai.networks.nets.DenseNet121(spatial_dims=3, in_channels=1, out_channels=1)
         model.features[0] = nn.Conv3d(config.NUM_INPUT_CHANNELS, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2),
-                                      padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
+                                      padding=(3, 3, 3), bias=False)
+
     elif model_name == "monai_effnet":
-        model = monai.networks.nets.EfficientNetBN("efficientnet-b0", pretrained=False, spatial_dims=3, in_channels=1,
+        model = monai.networks.nets.EfficientNetBN("efficientnet-b0", pretrained=True, spatial_dims=3, in_channels=1,
                                                    num_classes=1)
-        model._conv_stem = nn.Conv3d(config.NUM_INPUT_CHANNELS, 32, kernel_size=(3, 7, 7), stride=(1, 2, 2),
-                                     padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
+        model._conv_stem = nn.Conv3d(config.NUM_INPUT_CHANNELS,
+                                     32,
+                                     kernel_size=(3, 7, 7),
+                                     stride=(1, 2, 2),
+                                     padding=(3, 3, 3),
+                                     bias=False)
         model._fc = nn.Linear(1280, num_classes, bias=True)
     elif model_name == "monai_resnet":
         model = monai.networks.nets.resnet18(
             pretrained=False,
             spatial_dims=3,
+            no_max_pool=True
         )
-        model.conv1 = nn.Conv3d(config.NUM_INPUT_CHANNELS, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2),
-                                padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
+        model.conv1 = nn.Conv3d(config.NUM_INPUT_CHANNELS,
+                                64,
+                                kernel_size=(3, 7, 7),
+                                stride=(1, 2, 2),
+                                padding=(1, 3, 3),
+                                bias=False)
         model.fc = nn.Linear(512, num_classes, bias=True)
     elif model_name == "video_resnet":
-        model = models.video.r3d_18(pretrained=True)
-        model.fc = nn.Linear(512, num_classes)
-        model.stem[0] = nn.Conv3d(config.NUM_INPUT_CHANNELS, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2),
-                                  padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
+        model = models.video.r3d_18(pretrained=False)
+        model.fc = nn.Linear(512, num_classes, bias=True)
+        model.stem[0] = nn.Conv3d(config.NUM_INPUT_CHANNELS,
+                                  64,
+                                  kernel_size=(3, 7, 7),
+                                  stride=(1, 2, 2),
+                                  padding=(1, 3, 3),
+                                  bias=False)
+
     else:
-        model = None  # TODO Exception
+        raise NotImplementedError("whoops")
 
     return model
 
@@ -154,7 +179,7 @@ def get_split():
     return train_samples, val_samples
 
 
-def train_fn(model, criterion, mt_train, optimizer, epoch):
+def train_fn(model, criterion, mt_train, optimizer, scheduler):
     # loop = tqdm(mt_train, total=len(mt_train.data_loader.indices), leave=True)
     # loop.set_description("Training Epoch Nr.: " + str(epoch))
     # random.seed(epoch)
@@ -175,7 +200,8 @@ def train_fn(model, criterion, mt_train, optimizer, epoch):
             loss = criterion(outputs.type(torch.float32), y.type(torch.float32))
             loss.backward()
             optimizer.step()
-            losses_batches.append(loss.item())
+            losses_batches.append(loss.detach().cpu().numpy())
+    scheduler.step()
 
     return np.mean(losses_batches)
 
@@ -211,12 +237,19 @@ def evaluate(model, epoch, mt_val, train_loss):
     ALL_TLOSS.append(train_loss)
     ALL_VLOSS.append(np.mean(losses_batches))
     ALL_F1.append(f_1)
+    ALL_LR.append(optimizer.param_groups[0]["lr"])
 
-    plt.plot(EPOCHS, ALL_TLOSS, '-gD', label="T-Loss" if epoch == 0 else "", markevery=[MODEL_BEST])
-    plt.plot(EPOCHS, ALL_VLOSS, '-bD', label="V-Loss" if epoch == 0 else "", markevery=[MODEL_BEST])
-    plt.plot(EPOCHS, ALL_F1, '-rD', label="F1" if epoch == 0 else "", markevery=[MODEL_BEST])
+    ax: array[plt.Axes]
+    figs, ax = plt.subplots(nrows=2)
+    ax[0].plot(EPOCHS, ALL_TLOSS, '-gD', label="T-Loss" if epoch == 0 else "", markevery=[MODEL_BEST])
+    ax[0].plot(EPOCHS, ALL_VLOSS, '-bD', label="V-Loss" if epoch == 0 else "", markevery=[MODEL_BEST])
+    ax2: plt.Axes = plt.twinx(ax[0])
+    ax2.plot(EPOCHS, ALL_F1, '-rD', label="F1" if epoch == 0 else "", markevery=[MODEL_BEST])
+    ax2.set_ylim((0, 1.))
+    ax2.grid(True)
+    ax[1].plot(EPOCHS, ALL_LR, color="b", label="LR")
     plt.title("Best model: %d" % MODEL_BEST)
-    plt.legend()
+
     plt.savefig(os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, 'info.png'))
 
     model.train()
@@ -230,9 +263,9 @@ if __name__ == '__main__':
     cma.parser.add_argument('-m', '--model', default="",
                             help='Model used for inference', required=True, type=str)
     cma.parse_args()
-    model_name = cma.args.model
+    model_name = ModelChoices(cma.args.model)
 
-    config.CHECKPOINT_PATH = os.path.join(os.environ['cs_checkpoint_path'], model_name)
+    config.CHECKPOINT_PATH = os.path.join(os.environ['cs_checkpoint_path'], model_name.value)
     os.makedirs(config.CHECKPOINT_PATH, exist_ok=True)
     config.CHECKPOINT_PATH = os.path.join(config.CHECKPOINT_PATH, config.TASK)
     os.makedirs(config.CHECKPOINT_PATH, exist_ok=True)
@@ -243,9 +276,9 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, 'info.log'),
                         encoding='utf-8', level=logging.DEBUG)
 
-    model = get_model(model_name)
-    model = model.cuda()
+    model = get_model(model_name.value)
 
+    model = model.cuda()
     # print(model)
 
     train_samples, val_samples = get_split()
@@ -260,6 +293,8 @@ if __name__ == '__main__':
         data_loader=dl_train,
         transform=transform,
         num_processes=config.NUM_WORKERS,
+        num_cached_per_queue=4,
+        pin_memory=True
     )
 
     dl_val = Mprage2space(val_samples, config.BATCH_SIZE, config.PATCH_SIZE, config.NUM_WORKERS,
@@ -269,10 +304,15 @@ if __name__ == '__main__':
         data_loader=dl_val,
         transform=Compose([]),
         num_processes=config.NUM_WORKERS,
+        num_cached_per_queue=4,
+        pin_memory=True
     )
+
+    print(f"Amount of validation samples: \t{len(dl_val)}")
 
     criterion = torch.nn.BCEWithLogitsLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=2e-4, momentum=0.9)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.NUM_EPOCHS, eta_min=1e-10)
     scaler = torch.cuda.amp.GradScaler()
 
     if config.TENSOR_BOARD:
@@ -289,9 +329,7 @@ if __name__ == '__main__':
 
     for epoch in range(0, config.NUM_EPOCHS):
 
-        train_loss = train_fn(
-            model, criterion, mt_train, optimizer, epoch
-        )
+        train_loss = train_fn(model, criterion, mt_train, optimizer, scheduler)
 
         val_loss, corrects, f1 = evaluate(model, epoch, mt_val, train_loss)
 
@@ -299,6 +337,7 @@ if __name__ == '__main__':
             writer.add_scalar('train_loss', train_loss, global_step=epoch)
             writer.add_scalar('val_loss', val_loss, global_step=epoch)
             writer.add_scalar('val_acc', corrects, global_step=epoch)
+            writer.add_scalar("learning_rate", optimizer.param_groups[0]["lr"], global_step=epoch)
 
         if f1 > best_f1:
             best_f1 = f1

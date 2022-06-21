@@ -19,7 +19,8 @@ from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, 
 from dataloading.batchgenerators_mprage2space import Mprage2space
 import torch
 from command_line_arguments.command_line_arguments import CommandLineArguments
-from monai.networks.nets import EfficientNetBN
+import monai
+
 
 def save_checkpoint(model, optimizer, filename="my_checkpoint.pth.tar"):
     print("=> Saving checkpoint")
@@ -121,8 +122,8 @@ def train_fn(model, criterion, mt_train, optimizer, epoch):
         x = torch.from_numpy(batch["data"]).to(config.DEVICE)
         y = torch.from_numpy(batch["class"]).to(config.DEVICE)
 
-        img_grid = torchvision.utils.make_grid(x[:, :, 8, :, :])
-        writer.add_image("batchgenerators", img_grid)
+        # img_grid = torchvision.utils.make_grid(x[:, :, 8, :, :])
+        # writer.add_image("batchgenerators", img_grid)
 
         with torch.cuda.amp.autocast():
             # zero the parameter gradients
@@ -158,7 +159,7 @@ def evaluate(model, epoch, fold, mt_val, train_loss):
             losses_batches.append(loss.item())
 
     print('[%d] Corr.: %d/%d, T-Loss: %.3f, V-Loss: %.3f' % (
-    epoch + 1, all_y.shape[0], np.sum(corrects), train_loss, np.mean(losses_batches)))
+        epoch + 1, all_y.shape[0], np.sum(corrects), train_loss, np.mean(losses_batches)))
 
     model.train()
 
@@ -178,10 +179,12 @@ if __name__ == '__main__':
 
     num_classes = 1
 
-    model = EfficientNetBN("efficientnet-b0", pretrained=False, spatial_dims=3, in_channels=1, num_classes=1)
-    model._conv_stem = nn.Conv3d(config.NUM_INPUT_CHANNELS, 32, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
-    model._fc = nn.Linear(1280, num_classes, bias=True)
+    model = monai.networks.nets.DenseNet121(spatial_dims=3, in_channels=1, out_channels=1)
+    model.features[0] = nn.Conv3d(config.NUM_INPUT_CHANNELS, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2),
+                                  padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
     model = model.cuda()
+
+    # print(model)
 
     train_samples, val_samples = get_split()
 
@@ -244,7 +247,7 @@ if __name__ == '__main__':
 
             best_model_wts = copy.deepcopy(model.state_dict())
             save_checkpoint(model, optimizer,
-                            os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "model_best.pth.tar"))
+                            os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "../model_best.pth.tar"))
 
     print('Finished Training')
     save_checkpoint(model, optimizer,

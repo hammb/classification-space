@@ -19,7 +19,7 @@ from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, 
 from dataloading.batchgenerators_mprage2space import Mprage2space
 import torch
 from command_line_arguments.command_line_arguments import CommandLineArguments
-
+from monai.networks.nets import EfficientNetBN
 
 def save_checkpoint(model, optimizer, filename="my_checkpoint.pth.tar"):
     print("=> Saving checkpoint")
@@ -121,8 +121,8 @@ def train_fn(model, criterion, mt_train, optimizer, epoch):
         x = torch.from_numpy(batch["data"]).to(config.DEVICE)
         y = torch.from_numpy(batch["class"]).to(config.DEVICE)
 
-        #img_grid = torchvision.utils.make_grid(x[:,random.randint(0,2),8,:,:])
-        #writer.add_image("batchgenerators", img_grid)
+        img_grid = torchvision.utils.make_grid(x[:, :, 8, :, :])
+        writer.add_image("batchgenerators", img_grid)
 
         with torch.cuda.amp.autocast():
             # zero the parameter gradients
@@ -157,11 +157,12 @@ def evaluate(model, epoch, fold, mt_val, train_loss):
             all_y = torch.cat([all_y, y.detach().to('cpu')])
             losses_batches.append(loss.item())
 
-    print('[%d] Corr.: %d/%d, T-Loss: %.3f, V-Loss: %.3f' % (epoch + 1, all_y.shape[0], np.sum(corrects), train_loss, np.mean(losses_batches)))
+    print('[%d] Corr.: %d/%d, T-Loss: %.3f, V-Loss: %.3f' % (
+    epoch + 1, all_y.shape[0], np.sum(corrects), train_loss, np.mean(losses_batches)))
 
     model.train()
 
-    return np.mean(losses_batches), all_y.shape[0]/np.sum(corrects)
+    return np.mean(losses_batches), all_y.shape[0] / np.sum(corrects)
 
 
 if __name__ == '__main__':
@@ -177,9 +178,9 @@ if __name__ == '__main__':
 
     num_classes = 1
 
-    model = models.video.r3d_18(pretrained=True)
-    model.fc = nn.Linear(512, num_classes)
-    model.stem[0] = nn.Conv3d(config.NUM_INPUT_CHANNELS, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
+    model = EfficientNetBN("efficientnet-b0", pretrained=False, spatial_dims=3, in_channels=1, num_classes=1)
+    model._conv_stem = nn.Conv3d(config.NUM_INPUT_CHANNELS, 32, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
+    model._fc = nn.Linear(1280, num_classes, bias=True)
     model = model.cuda()
 
     train_samples, val_samples = get_split()
@@ -210,7 +211,8 @@ if __name__ == '__main__':
     scaler = torch.cuda.amp.GradScaler()
 
     if config.TENSOR_BOARD:
-        writer = SummaryWriter(os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "runs/classification/track_stats"))
+        writer = SummaryWriter(
+            os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "runs/classification/track_stats"))
 
     model.train()
     since = time.time()
@@ -236,14 +238,15 @@ if __name__ == '__main__':
             writer.add_scalar('val_acc', corrects, global_step=epoch)
 
         if val_loss < best_val_loss:
-
             best_corrects = corrects
             best_val_loss = val_loss
             best_train_loss = train_loss
 
             best_model_wts = copy.deepcopy(model.state_dict())
-            save_checkpoint(model, optimizer, os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "model_best.pth.tar"))
+            save_checkpoint(model, optimizer,
+                            os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "../model_best.pth.tar"))
 
     print('Finished Training')
-    save_checkpoint(model, optimizer, os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "model_end.pth.tar"))
+    save_checkpoint(model, optimizer,
+                    os.path.join(config.CHECKPOINT_PATH, "fold_%d" % config.FOLD, "model_end.pth.tar"))
     model.load_state_dict(best_model_wts)

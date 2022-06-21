@@ -26,6 +26,9 @@ class Mprage2space(DataLoader):
         self.num_modalities = config.NUM_INPUT_CHANNELS
         self.indices = list(range(len(self._data)))
 
+    def __len__(self):
+        return len(self._data)
+
     def generate_train_batch(self):
         idx = self.get_indices()
         patients_for_batch = [self._data[i] for i in idx]
@@ -72,8 +75,7 @@ def get_split():
 
     all_samples = os.listdir(config.TRAIN_DIR)
 
-    percentage_val_samples = 15
-    # 15% val. data
+    percentage_val_samples = 20
 
     num_val_samples = int(len(all_samples) / 100 * percentage_val_samples)
     val_samples = random.sample(all_samples, num_val_samples)
