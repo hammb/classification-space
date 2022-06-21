@@ -13,7 +13,7 @@ import torchvision.utils
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 import logging
-from smpl_models import resnet
+
 import classification_config as config
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
 from batchgenerators.transforms.abstract_transforms import Compose
@@ -21,7 +21,6 @@ from batchgenerators.transforms.spatial_transforms import SpatialTransform_2, Mi
 from batchgenerators.transforms.color_transforms import BrightnessMultiplicativeTransform, GammaTransform
 from batchgenerators.transforms.noise_transforms import GaussianNoiseTransform, GaussianBlurTransform
 from batchgenerators.transforms.sample_normalization_transforms import ZeroMeanUnitVarianceTransform
-
 from dataloading.batchgenerators_mprage2space import Mprage2space
 import torch
 from command_line_arguments.command_line_arguments import CommandLineArguments
@@ -43,11 +42,6 @@ class ModelChoices(Enum):
     MONAI_EFFICIENTNET = "monai_effnet"
     MOANI_DENSENET = "monai_densenet"
     TV_RESNET = "video_resnet"
-    SMPL_RESNET_18 = "smpl_resnet_18"
-    SMPL_RESNET_50 = "smpl_resnet_50"
-    SMPL_RESNET_101 = "smpl_resnet_101"
-    SMPL_RESNET_152 = "smpl_resnet_152"
-    SMPL_RESNET_200 = "smpl_resnet_200"
 
 
 def get_model(model_name):
@@ -88,87 +82,7 @@ def get_model(model_name):
                                   stride=(1, 2, 2),
                                   padding=(1, 3, 3),
                                   bias=False)
-    elif model_name == "smpl_resnet_18":
-        model = resnet.generate_model(model_depth=18,
-                                      n_classes=num_classes,
-                                      n_input_channels=config.NUM_INPUT_CHANNELS,
-                                      shortcut_type='B',
-                                      conv1_t_size=7,
-                                      conv1_t_stride=3,
-                                      no_max_pool=True,
-                                      widen_factor=1.0)
-        model.conv1 = nn.Conv3d(config.NUM_INPUT_CHANNELS,
-                                64,
-                                kernel_size=(3, 7, 7),
-                                stride=(1, 2, 2),
-                                padding=(1, 3, 3),
-                                bias=False)
-        model.fc = nn.Linear(512, num_classes, bias=True)
-    elif model_name == "smpl_resnet_50":
-        model = resnet.generate_model(model_depth=50,
-                                      n_classes=num_classes,
-                                      n_input_channels=config.NUM_INPUT_CHANNELS,
-                                      shortcut_type='B',
-                                      conv1_t_size=7,
-                                      conv1_t_stride=3,
-                                      no_max_pool=True,
-                                      widen_factor=1.0)
-        model.conv1 = nn.Conv3d(config.NUM_INPUT_CHANNELS,
-                                64,
-                                kernel_size=(3, 7, 7),
-                                stride=(1, 2, 2),
-                                padding=(1, 3, 3),
-                                bias=False)
-        model.fc = nn.Linear(2048, num_classes, bias=True)
 
-    elif model_name == "smpl_resnet_101":
-        model = resnet.generate_model(model_depth=101,
-                                      n_classes=num_classes,
-                                      n_input_channels=config.NUM_INPUT_CHANNELS,
-                                      shortcut_type='B',
-                                      conv1_t_size=7,
-                                      conv1_t_stride=3,
-                                      no_max_pool=True,
-                                      widen_factor=1.0)
-        model.conv1 = nn.Conv3d(config.NUM_INPUT_CHANNELS,
-                                64,
-                                kernel_size=(3, 7, 7),
-                                stride=(1, 2, 2),
-                                padding=(1, 3, 3),
-                                bias=False)
-        model.fc = nn.Linear(2048, num_classes, bias=True)
-    elif model_name == "smpl_resnet_152":
-        model = resnet.generate_model(model_depth=152,
-                                      n_classes=num_classes,
-                                      n_input_channels=config.NUM_INPUT_CHANNELS,
-                                      shortcut_type='B',
-                                      conv1_t_size=7,
-                                      conv1_t_stride=3,
-                                      no_max_pool=True,
-                                      widen_factor=1.0)
-        model.conv1 = nn.Conv3d(config.NUM_INPUT_CHANNELS,
-                                64,
-                                kernel_size=(3, 7, 7),
-                                stride=(1, 2, 2),
-                                padding=(1, 3, 3),
-                                bias=False)
-        model.fc = nn.Linear(2048, num_classes, bias=True)
-    elif model_name == "smpl_resnet_200":
-        model = resnet.generate_model(model_depth=200,
-                                      n_classes=num_classes,
-                                      n_input_channels=config.NUM_INPUT_CHANNELS,
-                                      shortcut_type='B',
-                                      conv1_t_size=7,
-                                      conv1_t_stride=3,
-                                      no_max_pool=True,
-                                      widen_factor=1.0)
-        model.conv1 = nn.Conv3d(config.NUM_INPUT_CHANNELS,
-                                64,
-                                kernel_size=(3, 7, 7),
-                                stride=(1, 2, 2),
-                                padding=(1, 3, 3),
-                                bias=False)
-        model.fc = nn.Linear(2048, num_classes, bias=True)
     else:
         raise NotImplementedError("whoops")
 
@@ -208,10 +122,11 @@ def get_train_transform(patch_size):
     # We use all spatial transformations with a probability of 0.2 per sample. This means that 1 - (1 - 0.1) ** 3 = 27%
     # of samples will be augmented, the rest will just be cropped
 
-    tr_transforms.append(
-        ZeroMeanUnitVarianceTransform(
+    if not config.FOLD == 1:
+        tr_transforms.append(
+            ZeroMeanUnitVarianceTransform(
+            )
         )
-    )
 
     tr_transforms.append(
         SpatialTransform_2(
@@ -257,7 +172,7 @@ def get_train_transform(patch_size):
 
 
 def get_split():
-    random.seed(config.FOLD)
+    random.seed(0)
 
     all_samples = os.listdir(config.TRAIN_DIR)
 
@@ -294,8 +209,10 @@ def train_fn(model, criterion, mt_train, optimizer, scheduler, epoch):
             loss.backward()
             optimizer.step()
             losses_batches.append(loss.detach().cpu().numpy())
-    if epoch > 200:
-        scheduler.step()
+
+    if not config.FOLD == 3:
+        if epoch > 200:
+            scheduler.step()
 
     return np.mean(losses_batches)
 
@@ -354,10 +271,8 @@ def evaluate(model, epoch, mt_val, train_loss):
 if __name__ == '__main__':
 
     cma = CommandLineArguments()
-    cma.parser.add_argument('-m', '--model', default="",
-                            help='Model used for inference', required=True, type=str)
     cma.parse_args()
-    model_name = ModelChoices(cma.args.model)
+    model_name = ModelChoices("video_resnet")
 
     config.CHECKPOINT_PATH = os.path.join(os.environ['cs_checkpoint_path'], model_name.value)
     os.makedirs(config.CHECKPOINT_PATH, exist_ok=True)
@@ -396,9 +311,9 @@ if __name__ == '__main__':
 
     mt_val = MultiThreadedAugmenter(
         data_loader=dl_val,
-        transform=Compose([
-                ZeroMeanUnitVarianceTransform()
-        ]),
+        transform=Compose(
+            [ZeroMeanUnitVarianceTransform()] if not config.FOLD == 1 else []
+        ),
         num_processes=config.NUM_WORKERS,
         num_cached_per_queue=4,
         pin_memory=True

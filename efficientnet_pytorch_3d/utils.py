@@ -93,7 +93,7 @@ def drop_connect(inputs, p, training):
 
 def get_same_padding_conv3d(image_size=None):
     """ Chooses static padding if you have specified an image size, and dynamic padding otherwise.
-        Static padding is necessary for ONNX exporting of models. """
+        Static padding is necessary for ONNX exporting of smpl_models. """
     if image_size is None:
         return Conv3dDynamicSamePadding
     else:
@@ -288,7 +288,7 @@ def get_model_params(model_name, override_params):
     """ Get the block args and global params for a given model """
     if model_name.startswith('efficientnet'):
         w, d, s, p = efficientnet_params(model_name)
-        # note: all models have drop connect rate = 0.2
+        # note: all smpl_models have drop connect rate = 0.2
         blocks_args, global_params = efficientnet3d(
             width_coefficient=w, depth_coefficient=d, dropout_rate=p, image_size=s)
     else:
