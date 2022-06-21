@@ -1,7 +1,6 @@
 
 model_best.pth.tar
 efficientnet_pytorch_3d
-smpl_models
 road_to_training
 runs
 simple_cnn_3d
