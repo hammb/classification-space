@@ -294,7 +294,7 @@ def train_fn(model, criterion, mt_train, optimizer, scheduler, epoch):
             loss.backward()
             optimizer.step()
             losses_batches.append(loss.detach().cpu().numpy())
-    if epoch > 200:
+    if epoch > config.SCHEDULER_ENTRY:
         scheduler.step()
 
     return np.mean(losses_batches)
@@ -408,7 +408,7 @@ if __name__ == '__main__':
 
     criterion = torch.nn.BCEWithLogitsLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=2e-4, momentum=0.9)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.NUM_EPOCHS - 200, eta_min=1e-10)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.NUM_EPOCHS - config.SCHEDULER_ENTRY, eta_min=1e-10)
     scaler = torch.cuda.amp.GradScaler()
 
     if config.TENSOR_BOARD:

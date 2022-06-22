@@ -10,7 +10,8 @@ CHECKPOINT_PATH = ""
 TRAIN_DIR = ""
 
 NUM_WORKERS = 24
-NUM_EPOCHS = 400
+NUM_EPOCHS = 500
+SCHEDULER_ENTRY = 200
 PATCH_SIZE = (16, 224, 224)
 BATCH_SIZE = 2
 # TRAIN_DIR = os.path.join("/home/AD/b556m/data/classification_space/classification_space_preprocessed_b0", TASK,
