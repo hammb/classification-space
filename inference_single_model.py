@@ -19,11 +19,25 @@ from monai.networks.nets import EfficientNetBN
 from monai.networks.nets import resnet18
 
 toWrite = [
-    ["architecture", "IMAGE", "MODEL", "FOLD", "num correct", "num wrong", "TP", "FP", "FN", "TN", "precision", "recall", "f1",
-     "sum"]
+    [
+        "architecture",
+        "IMAGE",
+        "MODEL",
+        "FOLD",
+        "num correct",
+        "num wrong",
+        "TP",
+        "FP",
+        "FN",
+        "TN",
+        "precision",
+        "recall",
+        "f1",
+        "sum",
+    ]
 ]
 
-file = open('results.csv', 'w')
+file = open("results.csv", "w")
 
 
 def load_checkpoint(checkpoint_file, model, optimizer, lr):
@@ -46,8 +60,11 @@ def evaluate(model, mt_test, fold, model_name):
     fold_name = "fold_%d" % fold  # config.FOLD
 
     load_checkpoint(
-        os.path.join(config.CHECKPOINT_PATH, fold_name, "model_best.pth.tar"), model,
-        optimizer, lr=2e-4)
+        os.path.join(config.CHECKPOINT_PATH, fold_name, "model_best.pth.tar"),
+        model,
+        optimizer,
+        lr=2e-4,
+    )
 
     model.eval()
 
@@ -55,12 +72,12 @@ def evaluate(model, mt_test, fold, model_name):
         x = torch.from_numpy(batch["data"]).to(config.DEVICE)
         y = torch.from_numpy(batch["class"]).to(config.DEVICE)
 
-        all_y = torch.cat([all_y, y.detach().to('cpu')])
+        all_y = torch.cat([all_y, y.detach().to("cpu")])
 
         with torch.no_grad():
             outputs = model(x)
 
-            all_outputs = torch.cat([all_outputs, outputs.detach().to('cpu')])
+            all_outputs = torch.cat([all_outputs, outputs.detach().to("cpu")])
 
     outputs_folds[fold] = torch.round(torch.sigmoid(all_outputs))
 
@@ -70,15 +87,19 @@ def evaluate(model, mt_test, fold, model_name):
     for value_idx in range(len(outputs_folds[list(outputs_folds.keys())[0]])):
         values_in_folds = torch.Tensor()
         for fold in outputs_folds:
-            values_in_folds = torch.cat([values_in_folds, outputs_folds[fold][value_idx]])
+            values_in_folds = torch.cat(
+                [values_in_folds, outputs_folds[fold][value_idx]]
+            )
 
-        ensamble_output = torch.round(torch.mean(values_in_folds)).detach().to('cpu').numpy().min()
+        ensamble_output = (
+            torch.round(torch.mean(values_in_folds)).detach().to("cpu").numpy().min()
+        )
         outputs_ensamble.append(ensamble_output)
 
     outputs_ensamble = np.array(outputs_ensamble)
     all_y_np = []
     for value in all_y:
-        all_y_np.append(value.detach().to('cpu').numpy().min())
+        all_y_np.append(value.detach().to("cpu").numpy().min())
     all_y_np = np.array(all_y_np)
 
     # print(all_y_np)
@@ -110,63 +131,123 @@ def evaluate(model, mt_test, fold, model_name):
         if all_y_np[i] == 0 and outputs_ensamble[i] == 0:
             tn = tn + 1
 
-    print('TP: %d, FP: %d, FN: %d, TN: %d' % (tp, fp, fn, tn))
+    print("TP: %d, FP: %d, FN: %d, TN: %d" % (tp, fp, fn, tn))
 
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
 
-    print('precision: %f, recall: %f' % (precision, recall))
+    print("precision: %f, recall: %f" % (precision, recall))
 
     f1 = 2 * (precision * recall) / (precision + recall)
 
-    print('f1: %f' % f1)
+    print("f1: %f" % f1)
 
     # corrects.append(torch.sum(torch.round(torch.sigmoid(outputs)) == y).detach().to('cpu').numpy().min())
     # return all_y.shape[0] / np.sum(corrects)
 
-    toWrite.append([model_name, config.TASK, config.TASK, fold, num_correct, num_wrong, tp, fp, fn, tn, precision, recall, f1,
-                    num_correct + num_wrong])
+    toWrite.append(
+        [
+            model_name,
+            config.TASK,
+            config.TASK,
+            fold,
+            num_correct,
+            num_wrong,
+            tp,
+            fp,
+            fn,
+            tn,
+            precision,
+            recall,
+            f1,
+            num_correct + num_wrong,
+        ]
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     for task in ["mprage", "space", "mprage_3in"]:
-        for model_name in ["training_monai_densenet", "training_monai_effnet", "training_monai_resnet", "training_video_resnet"]:
+        for model_name in [
+            "training_monai_densenet",
+            "training_monai_effnet",
+            "training_monai_resnet",
+            "training_video_resnet",
+        ]:
             for fold in [0, 1, 2, 3, 4]:
 
                 config.NUM_INPUT_CHANNELS = 3 if task == "mprage_3in" else 1
 
                 config.TASK = task
                 config.FOLD = fold
-                config.TRAIN_DIR = input_path = "/home/AD/b556m/data/classification_space/classification_space_preprocessed_b0/" + task + "/test/all_samples"
-                config.CHECKPOINT_PATH = os.path.join(os.environ['cs_checkpoint_path'], model_name)
-                config.CHECKPOINT_PATH = os.path.join(config.CHECKPOINT_PATH, config.TASK)
+                config.TRAIN_DIR = input_path = (
+                    "/home/AD/b556m/data/classification_space/classification_space_preprocessed_b0/"
+                    + task
+                    + "/test/all_samples"
+                )
+                config.CHECKPOINT_PATH = os.path.join(
+                    os.environ["cs_checkpoint_path"], model_name
+                )
+                config.CHECKPOINT_PATH = os.path.join(
+                    config.CHECKPOINT_PATH, config.TASK
+                )
                 num_classes = 1
 
-                logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.DEBUG)
+                logging.basicConfig(
+                    filename="example.log", encoding="utf-8", level=logging.DEBUG
+                )
 
                 if model_name == "training_monai_densenet":
-                    model = monai.networks.nets.DenseNet121(spatial_dims=3, in_channels=1, out_channels=1)
-                    model.features[0] = nn.Conv3d(config.NUM_INPUT_CHANNELS, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2),
-                                                  padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
+                    model = monai.networks.nets.DenseNet121(
+                        spatial_dims=3, in_channels=1, out_channels=1
+                    )
+                    model.features[0] = nn.Conv3d(
+                        config.NUM_INPUT_CHANNELS,
+                        64,
+                        kernel_size=(3, 7, 7),
+                        stride=(1, 2, 2),
+                        padding=(config.NUM_INPUT_CHANNELS, 3, 3),
+                        bias=False,
+                    )
                 elif model_name == "training_monai_effnet":
-                    model = EfficientNetBN("efficientnet-b0", pretrained=False, spatial_dims=3, in_channels=1, num_classes=1)
-                    model._conv_stem = nn.Conv3d(config.NUM_INPUT_CHANNELS, 32, kernel_size=(3, 7, 7), stride=(1, 2, 2),
-                                                 padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
-                    model._fc = nn.Linear(1280, num_classes, bias=True)
-                elif model_name == "training_monai_resnet":
-                    model = resnet18(
+                    model = EfficientNetBN(
+                        "efficientnet-b0",
                         pretrained=False,
                         spatial_dims=3,
+                        in_channels=1,
+                        num_classes=1,
                     )
-                    model.conv1 = nn.Conv3d(config.NUM_INPUT_CHANNELS, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2),
-                                            padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
+                    model._conv_stem = nn.Conv3d(
+                        config.NUM_INPUT_CHANNELS,
+                        32,
+                        kernel_size=(3, 7, 7),
+                        stride=(1, 2, 2),
+                        padding=(config.NUM_INPUT_CHANNELS, 3, 3),
+                        bias=False,
+                    )
+                    model._fc = nn.Linear(1280, num_classes, bias=True)
+                elif model_name == "training_monai_resnet":
+                    model = resnet18(pretrained=False, spatial_dims=3,)
+                    model.conv1 = nn.Conv3d(
+                        config.NUM_INPUT_CHANNELS,
+                        64,
+                        kernel_size=(3, 7, 7),
+                        stride=(1, 2, 2),
+                        padding=(config.NUM_INPUT_CHANNELS, 3, 3),
+                        bias=False,
+                    )
                     model.fc = nn.Linear(512, num_classes, bias=True)
                 else:
                     model = models.video.r3d_18(pretrained=True)
                     model.fc = nn.Linear(512, num_classes)
-                    model.stem[0] = nn.Conv3d(config.NUM_INPUT_CHANNELS, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2),
-                                              padding=(config.NUM_INPUT_CHANNELS, 3, 3), bias=False)
+                    model.stem[0] = nn.Conv3d(
+                        config.NUM_INPUT_CHANNELS,
+                        64,
+                        kernel_size=(3, 7, 7),
+                        stride=(1, 2, 2),
+                        padding=(config.NUM_INPUT_CHANNELS, 3, 3),
+                        bias=False,
+                    )
 
                 # print(model)
 
@@ -176,8 +257,14 @@ if __name__ == '__main__':
 
                 test_samples = os.listdir(input_path)
 
-                dl_test = Mprage2space(test_samples, config.BATCH_SIZE, config.PATCH_SIZE, config.NUM_WORKERS,
-                                       return_incomplete=False, shuffle=False)
+                dl_test = Mprage2space(
+                    test_samples,
+                    config.BATCH_SIZE,
+                    config.PATCH_SIZE,
+                    config.NUM_WORKERS,
+                    return_incomplete=False,
+                    shuffle=False,
+                )
 
                 mt_test = MultiThreadedAugmenter(
                     data_loader=dl_test,
