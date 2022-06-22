@@ -108,10 +108,14 @@ def get_model(model_name):
             padding=(1, 3, 3),
             bias=False,
         )
-        model.fc = nn.Linear(512, num_classes, bias=True)
+        model.fc = nn.Sequential(
+            nn.Dropout(p=0.2), nn.Linear(512, num_classes, bias=True)
+        )
     elif model_name == "video_resnet":
         model = models.video.r3d_18(pretrained=False)
-        model.fc = nn.Linear(512, num_classes, bias=True)
+        model.fc = nn.Sequential(
+            nn.Dropout(p=0.2), nn.Linear(512, num_classes, bias=True)
+        )
         model.stem[0] = nn.Conv3d(
             config.NUM_INPUT_CHANNELS,
             64,
@@ -560,8 +564,8 @@ if __name__ == "__main__":
     #   + 0. Increase epochs --> 400 to 1000 or 1600 for 24h jobs or 18h ?
     #   + 1. Log Steps instead of epochs
     #   + 2. Fix Step size per epoch
-    #   3. Remove Pretraining for all architectures
-    #   4. Train with pretraining for Monai & Video ResNet
+    #   + 3. Remove Pretraining for all architectures
+    #   + 4. Train with pretraining for Monai & Video ResNet
     #       a. If pretraining is the culprit --> Test other architectures with the longer schedules as well!
     #   5. Test stronger augmentations (side-quest can take a lot of time)
     #       a. Increase Noise
