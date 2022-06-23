@@ -9,3 +9,4 @@ training_dataloader.py
 example.log
 model_best.pth.tar
 results.csv
+resnet_weights
