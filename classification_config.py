@@ -18,6 +18,8 @@ BATCH_SIZE = 2
 #                          "train/all_samples")
 # TEST_DIR = os.path.join("/home/AD/b556m/data/classification_space/classification_space_preprocessed_b0", TASK,
 #                         "/test/all_samples")
+PRETRAINED = False
+PATH_TO_MONAI_WEIGHTS = "/dkfz/cluster/gpu/data/OE0441/b556m/projects/classification_space/resnet_weights/resnet_18.pth"
 
 MAX_VALUE = 1582 if TASK == "space" else 987
 
