@@ -131,7 +131,7 @@ def get_model(model_name):
         )
         model.fc = nn.Linear(512, num_classes, bias=True)
     elif model_name == "video_resnet":
-        model = models.video.r3d_18(pretrained=False)
+        model = models.video.r3d_18(pretrained=True)
         model.fc = nn.Linear(512, num_classes, bias=True)
         model.stem[0] = nn.Conv3d(
             config.NUM_INPUT_CHANNELS,
