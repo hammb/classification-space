@@ -100,6 +100,27 @@ def get_model(model_name):
         model = monai.networks.nets.resnet18(
             pretrained=False, spatial_dims=3, no_max_pool=True
         )
+
+        if config.PRETRAINED:
+            model.conv1 = nn.Conv3d(
+                config.NUM_INPUT_CHANNELS,
+                64,
+                kernel_size=(7, 7, 7),
+                stride=(1, 2, 2),
+                padding=(1, 3, 3),
+                bias=False,
+            )
+
+            checkpoint = torch.load(
+                config.PATH_TO_MONAI_WEIGHTS, map_location=config.DEVICE
+            )
+            checkpoint_state_dict = checkpoint["state_dict"]
+            new_checkpoint_state_dict = {}
+            for key in checkpoint_state_dict:
+                new_checkpoint_state_dict[key[7:]] = checkpoint_state_dict[key]
+
+            model.load_state_dict(new_checkpoint_state_dict, strict=False)
+
         model.conv1 = nn.Conv3d(
             config.NUM_INPUT_CHANNELS,
             64,
@@ -108,14 +129,10 @@ def get_model(model_name):
             padding=(1, 3, 3),
             bias=False,
         )
-        model.fc = nn.Sequential(
-            nn.Dropout(p=0.2), nn.Linear(512, num_classes, bias=True)
-        )
+        model.fc = nn.Linear(512, num_classes, bias=True)
     elif model_name == "video_resnet":
         model = models.video.r3d_18(pretrained=False)
-        model.fc = nn.Sequential(
-            nn.Dropout(p=0.2), nn.Linear(512, num_classes, bias=True)
-        )
+        model.fc = nn.Linear(512, num_classes, bias=True)
         model.stem[0] = nn.Conv3d(
             config.NUM_INPUT_CHANNELS,
             64,
@@ -243,7 +260,7 @@ def save_checkpoint(model, optimizer, filename="my_checkpoint.pth.tar"):
 def load_checkpoint(checkpoint_file, model, optimizer, lr):
     print("=> Loading checkpoint")
     checkpoint = torch.load(checkpoint_file, map_location=config.DEVICE)
-    model.load_state_dict(checkpoint["state_dict"])
+    model.load_state_dict(checkpoint["state_dict"], strict=False)
     optimizer.load_state_dict(checkpoint["optimizer"])
 
     # If we don't do this then it will just have learning rate of old checkpoint
