@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import os
-
+import logging
+import csv
 import argparse
 from enum import Enum
+from torchmetrics import F1Score
 
 import numpy as np
 import torchvision.models as models
@@ -11,6 +13,7 @@ from batchgenerators.transforms.sample_normalization_transforms import (
     ZeroMeanUnitVarianceTransform,
 )
 from torch import nn
+
 import classification_config as config
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
 from batchgenerators.transforms.abstract_transforms import Compose
@@ -20,7 +23,6 @@ from command_line_arguments.command_line_arguments import CommandLineArguments
 import monai
 from monai.networks.nets import EfficientNetBN
 from monai.networks.nets import resnet18
-
 from smpl_models import resnet
 
 
@@ -219,6 +221,27 @@ def get_model(model_name):
     return model
 
 
+toWrite = [
+    [
+        "architecture",
+        "IMAGE",
+        "MODEL",
+        "num correct",
+        "num wrong",
+        "TP",
+        "FP",
+        "FN",
+        "TN",
+        "precision",
+        "recall",
+        "f1",
+        "sum",
+    ]
+]
+
+file = open("results_ensambled.csv", "w")
+
+
 def load_checkpoint(checkpoint_file, model, optimizer, lr):
     print("=> Loading checkpoint")
     checkpoint = torch.load(checkpoint_file, map_location=config.DEVICE)
@@ -231,43 +254,58 @@ def load_checkpoint(checkpoint_file, model, optimizer, lr):
         param_group["lr"] = lr
 
 
-def evaluate(model, mt_test):
-    outputs_folds = {}
-    all_outputs = torch.Tensor()
+def evaluate_fold(fold, model, mt_test, model_best=True):
+    load_checkpoint(
+        os.path.join(
+            config.CHECKPOINT_PATH,
+            fold,
+            "model_best.pth.tar" if model_best else "model_end.pth.tar",
+        ),
+        model,
+        optimizer,
+        lr=2e-4,
+    )
+
     all_y = torch.Tensor()
-    corrects = []
-    first_loop = True
+    model.eval()
+    all_outputs = torch.Tensor()
+
+    for batch_idx, batch in enumerate(mt_test):
+        x = torch.from_numpy(batch["data"]).to(config.DEVICE)
+        y = torch.from_numpy(batch["class"]).to(config.DEVICE)
+
+        all_y = torch.cat([all_y, y.detach().to("cpu")])
+
+        with torch.no_grad():
+            outputs = model(x)
+
+            all_outputs = torch.cat([all_outputs, outputs.detach().to("cpu")])
+
+    f1 = F1Score(num_classes=2)
+
+    fold_f1_score = f1(
+        all_y.to(torch.int32), torch.round(torch.sigmoid(all_outputs)).to(torch.int32),
+    )
+
+    return all_y, fold_f1_score, torch.round(torch.sigmoid(all_outputs))
+
+
+def evaluate(model, mt_test, model_name):
+    outputs_folds = {}
+    all_y = torch.Tensor()
+
     for fold in sorted(os.listdir(config.CHECKPOINT_PATH)):
-
-        if not fold == "fold_3":
-            continue
-
-        load_checkpoint(
-            os.path.join(config.CHECKPOINT_PATH, fold, "model_best.pth.tar"),
-            model,
-            optimizer,
-            lr=2e-4,
+        all_y, fold_f1_score_best, fold_outputs_best = evaluate_fold(
+            fold, model, mt_test, model_best=True
+        )
+        _, fold_f1_score_end, fold_outputs_end = evaluate_fold(
+            fold, model, mt_test, model_best=False
         )
 
-        model.eval()
-
-        for batch_idx, batch in enumerate(mt_test):
-            x = torch.from_numpy(batch["data"]).to(config.DEVICE)
-            y = torch.from_numpy(batch["class"]).to(config.DEVICE)
-
-            if first_loop:
-                all_y = torch.cat([all_y, y.detach().to("cpu")])
-
-            with torch.no_grad():
-                outputs = model(x)
-
-                all_outputs = torch.cat([all_outputs, outputs.detach().to("cpu")])
-
-        outputs_folds[fold] = torch.round(torch.sigmoid(all_outputs))
-        all_outputs = torch.Tensor()
-
-        if first_loop:
-            first_loop = False
+        if fold_f1_score_best > fold_f1_score_end:
+            outputs_folds[fold] = fold_outputs_best
+        else:
+            outputs_folds[fold] = fold_outputs_end
 
     outputs_ensamble = []
 
@@ -329,71 +367,85 @@ def evaluate(model, mt_test):
 
     print("f1: %f" % f1)
 
-    # corrects.append(torch.sum(torch.round(torch.sigmoid(outputs)) == y).detach().to('cpu').numpy().min())
-    # return all_y.shape[0] / np.sum(corrects)
+    return [
+        model_name,
+        config.TASK,
+        config.TASK,
+        num_correct,
+        num_wrong,
+        tp,
+        fp,
+        fn,
+        tn,
+        precision,
+        recall,
+        f1,
+        num_correct + num_wrong,
+    ]
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-i",
-        "--input_path",
-        default=2,
-        help="Input path for inference",
-        required=True,
-        type=str,
-    )
-    parser.add_argument(
-        "-o",
-        "--output_path",
-        default=2,
-        help="Output path for results from inference",
-        required=False,
-        type=str,
-    )
-    parser.add_argument(
-        "-t", "--task", default="", help="Task to train", required=True, type=str
-    )
-    parser.add_argument(
-        "-m",
-        "--model",
-        default="",
-        help="Model used for inference",
-        required=True,
-        type=str,
-    )
-    args = parser.parse_args()
 
-    model_name = ModelChoices(args.model).value
-    config.TASK = args.task
-    config.TRAIN_DIR = input_path = args.input_path
-    config.CHECKPOINT_PATH = os.path.join(os.environ["cs_checkpoint_path"], args.model)
-    config.CHECKPOINT_PATH = os.path.join(config.CHECKPOINT_PATH, config.TASK)
-    output_path = args.output_path
+    for task in [
+        # "mprage",
+        "space",
+        # "mprage_3in"
+    ]:
+        for model_name in [
+            "monai_densenet",
+            "monai_effnet",
+            "monai_resnet",
+            "smpl_resnet_50",
+            # "smpl_resnet_101",
+            "video_resnet",
+        ]:
+            config.NUM_INPUT_CHANNELS = 3 if task == "mprage_3in" else 1
 
-    num_classes = 1
-    model = get_model(model_name)
-    model = model.cuda()
+            config.TASK = task
+            config.TRAIN_DIR = input_path = (
+                "/home/AD/b556m/data/classification_space/classification_space_preprocessed_b0/"
+                + task
+                + "/test/all_samples"
+            )
+            config.CHECKPOINT_PATH = os.path.join(
+                os.environ["cs_checkpoint_path"], model_name
+            )
+            config.CHECKPOINT_PATH = os.path.join(config.CHECKPOINT_PATH, config.TASK)
+            num_classes = 1
 
-    optimizer = torch.optim.SGD(
-        model.parameters(), lr=2e-4, momentum=0.9, weight_decay=5e-4
-    )
+            logging.basicConfig(
+                filename="example.log", encoding="utf-8", level=logging.DEBUG
+            )
 
-    test_samples = os.listdir(input_path)
+            model = get_model(model_name)
 
-    dl_test = Mprage2space(
-        test_samples,
-        config.BATCH_SIZE,
-        config.PATCH_SIZE,
-        config.NUM_WORKERS,
-        return_incomplete=False,
-        shuffle=False,
-    )
+            # print(model)
 
-    mt_test = MultiThreadedAugmenter(
-        data_loader=dl_test,
-        transform=Compose([ZeroMeanUnitVarianceTransform()]),
-        num_processes=config.NUM_WORKERS,
-    )
+            optimizer = torch.optim.SGD(model.parameters(), lr=2e-4, momentum=0.9)
 
-    evaluate(model, mt_test)
+            model = model.cuda()
+
+            test_samples = os.listdir(input_path)
+
+            dl_test = Mprage2space(
+                test_samples,
+                config.BATCH_SIZE,
+                config.PATCH_SIZE,
+                config.NUM_WORKERS,
+                return_incomplete=False,
+                shuffle=False,
+            )
+
+            mt_test = MultiThreadedAugmenter(
+                data_loader=dl_test,
+                transform=Compose([ZeroMeanUnitVarianceTransform()]),
+                num_processes=config.NUM_WORKERS,
+            )
+
+            toWrite.append(evaluate(model, mt_test, model_name))
+
+    with file:
+        writer = csv.writer(file)
+
+        for row in toWrite:
+            writer.writerow(row)
