@@ -633,8 +633,8 @@ if __name__ == "__main__":
             writer.add_scalar(
                 "learning_rate", optimizer.param_groups[0]["lr"], global_step=epoch
             )
-
-        if f1 > best_f1:
+        print()
+        if f1 > best_f1 and len(all_steps) > config.SAVE_MODEL_START_STEP:
             best_f1 = f1
             model_best = epoch
             best_model_wts = copy.deepcopy(model.state_dict())

@@ -10,3 +10,4 @@ example.log
 model_best.pth.tar
 results.csv
 resnet_weights
+results_ensambled.csv
