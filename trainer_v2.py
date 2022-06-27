@@ -58,6 +58,7 @@ class ModelChoices(Enum):
     MONAI_EFFICIENTNET_B0 = "monai_effnet_b0"
     MONAI_EFFICIENTNET_B1 = "monai_effnet_b1"
     MONAI_EFFICIENTNET_B2 = "monai_effnet_b2"
+    MONAI_EFFICIENTNET_B3 = "monai_effnet_b3"
     MOANI_DENSENET = "monai_densenet"
     TV_RESNET = "video_resnet"
     SMPL_RESNET_18 = "smpl_resnet_18"
@@ -135,6 +136,25 @@ def get_model(model_name):
             bias=False,
         )
         model._fc = nn.Linear(1408, num_classes, bias=True)
+
+    elif model_name == "monai_effnet_b3":
+        model = monai.networks.nets.EfficientNetBN(
+            "efficientnet-b3",
+            pretrained=True,
+            spatial_dims=3,
+            in_channels=1,
+            num_classes=1,
+        )
+        model._conv_stem = nn.Conv3d(
+            config.NUM_INPUT_CHANNELS,
+            32,
+            kernel_size=(3, 7, 7),
+            stride=(1, 2, 2),
+            padding=(3, 3, 3),
+            bias=False,
+        )
+        model._fc = nn.Linear(1536, num_classes, bias=True)
+
     elif model_name == "monai_resnet":
         model = monai.networks.nets.resnet18(
             pretrained=False, spatial_dims=3, no_max_pool=True
