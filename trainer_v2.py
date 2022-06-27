@@ -108,7 +108,6 @@ def get_model(model_name):
             in_channels=1,
             num_classes=1,
         )
-
         model._conv_stem = nn.Conv3d(
             config.NUM_INPUT_CHANNELS,
             32,
@@ -147,13 +146,12 @@ def get_model(model_name):
         )
         model._conv_stem = nn.Conv3d(
             config.NUM_INPUT_CHANNELS,
-            32,
+            40,
             kernel_size=(3, 7, 7),
             stride=(1, 2, 2),
             padding=(3, 3, 3),
             bias=False,
         )
-        model._fc = nn.Linear(1536, num_classes, bias=True)
 
     elif model_name == "monai_resnet":
         model = monai.networks.nets.resnet18(
